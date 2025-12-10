@@ -27,7 +27,7 @@ DWAI Assistant integrates:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Windows Host (C:\dwai-assistant)                        │
+│ Windows Host (C:\Users\austin\dwai-assistant)           │
 │                                                          │
 │  ┌──────────────────┐  ┌──────────────────────────┐   │
 │  │ Ollama Service   │  │ Open WebUI Container     │   │
@@ -55,6 +55,14 @@ DWAI Assistant integrates:
                         │ 100.80.203.54:11434 │
                         └─────────────────────┘
 ```
+
+## Model Speed Tiers (recommended presets)
+
+- Fast (quicker, slightly less accurate): `qwen2.5:7b-instruct` — temp 0.6, top_p 0.9, num_ctx 2048.
+- Default (balanced): `qwen3:8b` — temp 0.4, top_p 0.85, num_ctx 4096.
+- Max thinking (slower, higher quality): `qwen3:8b` with more context — temp 0.2, top_p 0.8, num_ctx 8192 (or max your hardware allows), top_k 30.
+
+Create three assistants/presets in Open WebUI with these models so users can pick speed vs. quality per chat.
 
 ---
 
@@ -126,6 +134,19 @@ docker stop open-webui
 docker restart open-webui
 ```
 
+### Validate Connectivity (Ollama + Docs Mount)
+
+```powershell
+# Ensure the container can see Ollama running on the host
+docker exec open-webui sh -c "curl -s http://host.docker.internal:11434/api/tags | head"
+
+# Ensure the service documents are mounted
+docker exec open-webui sh -c "ls /data/dwai-docs | head"
+
+# Confirm the WebUI is healthy
+curl -s http://localhost:3000/health
+```
+
 ### Remove and Redeploy Container
 
 ```powershell
@@ -135,7 +156,7 @@ docker run -d -p 3000:8080 `
   --add-host=host.docker.internal:host-gateway `
   -e OLLAMA_BASE_URL=http://host.docker.internal:11434 `
   -v C:/app/backend/data:/app/backend/data `
-  -v C:/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
+  -v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
   --name open-webui `
   --restart always `
   ghcr.io/open-webui/open-webui:main
@@ -385,4 +406,3 @@ docker stats open-webui --no-stream
 - **Ollama Documentation:** https://ollama.ai/
 - **Docker Documentation:** https://docs.docker.com/
 - **Qwen Model:** https://huggingface.co/Qwen/Qwen-7B
-

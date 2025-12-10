@@ -6,7 +6,7 @@ This document provides step-by-step instructions for running the Open WebUI cont
 
 - **Docker** installed and running
 - **Ollama** running on the Windows host with Qwen model pulled
-- **Repository** cloned to `C:\dwai-assistant`
+- **Repository** cloned to `C:\Users\austin\dwai-assistant`
 - **Tailscale** (for remote access) or local network connectivity
 
 ## Step 1: Verify Ollama is Running
@@ -30,6 +30,48 @@ ollama pull qwen
 
 ## Step 2: Run Open WebUI Container
 
+### Option A: Docker Compose (recommended)
+
+Create `docker-compose.yml` in the repo root (already added):
+
+```yaml
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "3000:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+      - open-webui-data:/app/backend/data
+      - ./docs/service-documents:/data/dwai-docs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  open-webui-data:
+```
+
+Start/stop:
+
+```powershell
+docker compose up -d
+docker compose down
+```
+
+### Verify connectivity to host Ollama and docs (optional but recommended)
+
+```powershell
+# From Windows host, confirm the container is healthy
+curl -s http://localhost:3000/health
+
+# From inside the container, confirm Ollama and the docs mount are reachable
+docker exec open-webui sh -c "curl -s http://host.docker.internal:11434/api/tags | head"
+docker exec open-webui sh -c "ls /data/dwai-docs | head"
+```
+
 ### Basic Docker Run Command (without repo mount)
 
 ```powershell
@@ -51,7 +93,7 @@ docker run -d -p 3000:8080 `
   --add-host=host.docker.internal:host-gateway `
   -e OLLAMA_BASE_URL=http://host.docker.internal:11434 `
   -v C:/app/backend/data:/app/backend/data `
-  -v C:/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
+  -v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
   --name open-webui `
   --restart always `
   ghcr.io/open-webui/open-webui:main
@@ -61,7 +103,7 @@ docker run -d -p 3000:8080 `
 - `--add-host=host.docker.internal:host-gateway` allows the container to reach the Windows host.
 - `-e OLLAMA_BASE_URL=http://host.docker.internal:11434` points to Ollama running on the host.
 - `-v C:/app/backend/data:/app/backend/data` persists Open WebUI data.
-- `-v C:/dwai-assistant/docs/service-documents:/data/dwai-docs:ro` mounts docs read-only for indexing.
+- `-v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro` mounts docs read-only for indexing.
 
 ## Step 3: Access Open WebUI
 
@@ -75,7 +117,7 @@ Once running, access the web interface:
 1. **Login** with default credentials (if first-time setup).
 2. **Settings → Connections:**
    - Ollama Base URL: `http://host.docker.internal:11434`
-   - Default Model: `qwen` (or your deployed variant)
+   - Default Model: `qwen3:8b` (or your deployed variant)
 3. **Test Connection** to ensure Ollama is reachable.
 
 ## Step 5: Index Service Documents (Knowledge Base)
@@ -86,7 +128,7 @@ Once running, access the web interface:
 2. Click **Create New Dataset/Knowledge Base**.
 3. **Name:** `DWAI Service Documents`
 4. **Source:** Select folder path input.
-5. **Path:** `/data/dwai-docs` (inside container; maps to `C:\dwai-assistant\docs\service-documents` on host).
+5. **Path:** `/data/dwai-docs` (inside container; maps to `C:\Users\austin\dwai-assistant\docs\service-documents` on host).
 6. **Settings:**
    - Keep directory hierarchy intact.
    - Enable recursive indexing.
@@ -115,7 +157,7 @@ docker run -d -p 3000:8080 `
   --add-host=host.docker.internal:host-gateway `
   -e OLLAMA_BASE_URL=http://host.docker.internal:11434 `
   -v C:/app/backend/data:/app/backend/data `
-  -v C:/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
+  -v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
   --name open-webui `
   --restart always `
   ghcr.io/open-webui/open-webui:main
