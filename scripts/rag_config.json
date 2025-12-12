@@ -1,0 +1,13 @@
+{
+  "docs_root": "C:/Users/austin/dwai-assistant/docs/service-documents",
+  "index_dir": "C:/Users/austin/dwai-assistant/data/rag",
+  "chunk_size": 1000,
+  "chunk_overlap": 100,
+  "embedding_model": "nomic-embed-text",
+  "ollama_base_url": "http://localhost:11434",
+  "chat_model": "qwen3:8b",
+  "vision_model": "llava:7b",
+  "vision_max_pages": 3,
+  "top_k": 4,
+  "max_context_chars": 12000
+}
