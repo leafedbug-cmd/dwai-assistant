@@ -131,7 +131,16 @@ def main() -> int:
     # Load config defaults
     cfg = {}
     if args.config:
-        cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        config_path = Path(args.config)
+        if not config_path.exists():
+            print(
+                f"Config file not found: {config_path}\n"
+                "Create it with:\n"
+                "  Copy-Item .\\scripts\\rag_config.example.json .\\scripts\\rag_config.json",
+                file=sys.stderr,
+            )
+        else:
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
     docs_root = Path(cfg.get("docs_root", Path("docs/service-documents").resolve()))
     index_dir = Path(
         args.index_dir

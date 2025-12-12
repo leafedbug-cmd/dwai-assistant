@@ -7,9 +7,16 @@ from typing import Iterable, List, Tuple
 
 import numpy as np
 import requests
-from pypdf import PdfReader
 from tqdm import tqdm
 import hnswlib
+import fitz  # PyMuPDF
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+# Suppress noisy MuPDF parse warnings from some PDFs.
+try:
+    fitz.TOOLS.mupdf_display_errors(False)
+except Exception:
+    pass
 
 
 def load_config(path: str | None) -> dict:
@@ -22,6 +29,14 @@ def load_config(path: str | None) -> dict:
         "ollama_base_url": "http://localhost:11434",
     }
     if not path:
+        return default
+    if not os.path.exists(path):
+        print(
+            f"Config file not found: {path}\n"
+            "Create it with:\n"
+            "  Copy-Item .\\scripts\\rag_config.example.json .\\scripts\\rag_config.json",
+            file=sys.stderr,
+        )
         return default
     with open(path, "r", encoding="utf-8") as f:
         user = json.load(f)
@@ -37,18 +52,36 @@ def iter_pdfs(root: Path) -> Iterable[Path]:
 def extract_pdf_pages(pdf_path: Path) -> List[Tuple[int, str]]:
     """
     Returns list of (page_number_1_based, text).
-    If extraction fails, returns empty list.
+    Uses PyMuPDF for speed; returns empty list on failure.
     """
+    out: List[Tuple[int, str]] = []
     try:
-        reader = PdfReader(str(pdf_path))
-        out: List[Tuple[int, str]] = []
-        for i, page in enumerate(reader.pages):
-            text = page.extract_text() or ""
-            if text.strip():
-                out.append((i + 1, text))
-        return out
+        doc = fitz.open(pdf_path)
+        try:
+            for i in range(doc.page_count):
+                page = doc.load_page(i)
+                text = page.get_text("text") or ""
+                if text.strip():
+                    out.append((i + 1, text))
+        finally:
+            doc.close()
     except Exception:
         return []
+    return out
+
+
+def process_pdf_for_chunks(args: Tuple[str, str, int, int]) -> Tuple[str, List[Tuple[int, str]]]:
+    pdf_str, docs_root_str, chunk_size, overlap = args
+    pdf = Path(pdf_str)
+    docs_root = Path(docs_root_str)
+    pages = extract_pdf_pages(pdf)
+    page_chunks: List[Tuple[int, str]] = []
+    for page_num, page_text in pages:
+        chunks = chunk_text(page_text, chunk_size, overlap)
+        for c in chunks:
+            page_chunks.append((page_num, c))
+    rel = str(pdf.relative_to(docs_root)).replace("\\", "/")
+    return rel, page_chunks
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
@@ -89,6 +122,12 @@ def main() -> int:
     ap.add_argument(
         "--batch-size", type=int, default=16, help="Embedding batch size (sequential calls)."
     )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, (os.cpu_count() or 4) - 1),
+        help="Parallel workers for PDF extraction/counting.",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -108,19 +147,18 @@ def main() -> int:
         print("No PDFs found.", file=sys.stderr)
         return 1
 
-    print(f"Found {len(pdfs)} PDFs. Counting chunks...")
+    print(f"Found {len(pdfs)} PDFs. Counting chunks with {args.workers} workers...")
     total_chunks = 0
-    per_pdf_chunks: List[Tuple[Path, List[Tuple[int, str]]]] = []
-    for pdf in tqdm(pdfs, desc="Counting"):
-        pages = extract_pdf_pages(pdf)
-        page_chunks: List[Tuple[int, str]] = []
-        for page_num, page_text in pages:
-            chunks = chunk_text(page_text, chunk_size, overlap)
-            for c in chunks:
-                page_chunks.append((page_num, c))
-        if page_chunks:
-            per_pdf_chunks.append((pdf, page_chunks))
-            total_chunks += len(page_chunks)
+    per_pdf_chunks: List[Tuple[str, List[Tuple[int, str]]]] = []
+    work_items = [(str(p), str(docs_root), chunk_size, overlap) for p in pdfs]
+
+    with ProcessPoolExecutor(max_workers=args.workers) as ex:
+        futures = [ex.submit(process_pdf_for_chunks, wi) for wi in work_items]
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="Counting"):
+            rel, page_chunks = fut.result()
+            if page_chunks:
+                per_pdf_chunks.append((rel, page_chunks))
+                total_chunks += len(page_chunks)
 
     print(f"Total chunks to index: {total_chunks}")
     if args.dry_run:
@@ -144,8 +182,7 @@ def main() -> int:
 
     current_id = 0
     with open(meta_path, "w", encoding="utf-8") as meta_f:
-        for pdf, chunks in tqdm(per_pdf_chunks, desc="Embedding"):
-            rel = str(pdf.relative_to(docs_root)).replace("\\", "/")
+        for rel, chunks in tqdm(per_pdf_chunks, desc="Embedding"):
             for i in range(0, len(chunks), args.batch_size):
                 batch = chunks[i : i + args.batch_size]
                 batch_texts = [t for _, t in batch]
