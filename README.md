@@ -63,6 +63,51 @@ dwai-assistant/
    git push origin main
    ```
 
+## Local RAG (No Upload Needed)
+
+Open WebUI in your current build only supports small “upload” knowledge bases. For your 30GB+ PDF library, use the local RAG scripts in `scripts/`.
+
+1. Install Python 3.10+ and dependencies:
+   ```powershell
+   pip install -r .\requirements-rag.txt
+   ```
+   Make sure your embedding model is available in Ollama:
+   ```powershell
+   ollama pull nomic-embed-text
+   ```
+2. (Optional) copy and edit config:
+   ```powershell
+   Copy-Item .\scripts\rag_config.example.json .\scripts\rag_config.json
+   notepad .\scripts\rag_config.json
+   ```
+3. Build the index (first time takes a while):
+   ```powershell
+   python .\scripts\rag_reindex.py --config .\scripts\rag_config.json
+   ```
+4. Ask questions:
+   ```powershell
+   python .\scripts\rag_ask.py "What are the HX75 maintenance intervals?"
+   ```
+
+### Diagram / Vision Mode (optional)
+
+For manuals where answers depend on exploded diagrams and callout numbers, you can run a local vision model on the top retrieved pages:
+
+1. Pull a vision model that Ollama supports (example):
+   ```powershell
+   ollama pull llava:7b
+   ```
+2. Rebuild the index if you haven’t since updating scripts (stores page numbers):
+   ```powershell
+   python .\scripts\rag_reindex.py --config .\scripts\rag_config.json
+   ```
+3. Vision auto-triggers for diagram/callout questions. You can still force or disable it:
+   ```powershell
+   python .\scripts\rag_ask.py "What is callout 12 on the JT20 exploded view?"
+   python .\scripts\rag_ask.py --vision "Force vision even if not needed"
+   python .\scripts\rag_ask.py --no-vision "Disable vision for this query"
+   ```
+
 ### Docker Container Setup
 
 See [docs/setup-open-webui.md](docs/setup-open-webui.md) for detailed instructions on running and configuring the Open WebUI container.

@@ -1,0 +1,6 @@
+requests>=2.31.0
+pypdf>=4.0.0
+numpy>=1.26.0
+hnswlib>=0.8.0
+tqdm>=4.66.0
+pymupdf>=1.24.0
