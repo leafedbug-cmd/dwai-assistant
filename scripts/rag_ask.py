@@ -180,10 +180,20 @@ def path_boost(path: str, model_variants: List[str], qualifiers: List[str], inte
 def rerank_hits(question: str, hits: List[Tuple[dict, float]]) -> List[Tuple[dict, float]]:
     model_variants, qualifiers = extract_model_tokens(question)
     intent = classify_intent(question)
+    q = question.lower()
     scored = []
     for rec, dist in hits:
+        p = (rec.get("path", "") or "").lower()
+        # Hard filter noisy telemetry docs unless the user is explicitly asking about them.
+        if ("telematics" in p or "clm" in p or "gps" in p) and not any(w in q for w in ("telematics", "gps", "clm")):
+            continue
         b = path_boost(rec.get("path", ""), model_variants, qualifiers, intent)
         scored.append((rec, dist, b))
+    if model_variants:
+        # If we found any model-specific candidates, drop non-matching paths to keep results on-topic.
+        matching = [x for x in scored if any(v in (x[0].get("path", "") or "").lower() for v in model_variants)]
+        if matching:
+            scored = matching
     # Lower distance is better; higher boost is better.
     scored.sort(key=lambda x: (x[1] - 0.08 * x[2], x[1]))
     return [(r, d) for r, d, _b in scored]
@@ -241,7 +251,6 @@ def main() -> int:
         print("Provide a question.", file=sys.stderr)
         return 2
 
-    # Load config defaults
     cfg = {}
     if args.config:
         config_path = Path(args.config)
@@ -254,18 +263,40 @@ def main() -> int:
             )
         else:
             cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    docs_root = Path(cfg.get("docs_root", Path("docs/service-documents").resolve()))
-    index_dir = Path(
-        args.index_dir
-        or cfg.get("index_dir", Path("data/rag").resolve())
+
+    index_dir = Path(args.index_dir or cfg.get("index_dir", Path("data/rag").resolve()))
+    answer, citations = answer_question(
+        question,
+        config=cfg,
+        index_dir=index_dir,
+        force_vision=args.vision,
+        disable_vision=args.no_vision,
     )
-    base_url = cfg.get("ollama_base_url", "http://localhost:11434")
-    embed_model = cfg.get("embedding_model", "nomic-embed-text")
-    chat_model = cfg.get("chat_model", "qwen3:8b")
-    vision_model = cfg.get("vision_model", "llava:7b")
-    vision_max_pages = int(cfg.get("vision_max_pages", 3))
-    top_k = int(cfg.get("top_k", 4))
-    max_context_chars = int(cfg.get("max_context_chars", 12000))
+
+    print(answer)
+    if citations:
+        print("\nSources:")
+        for i, p in enumerate(citations, start=1):
+            print(f"[{i}] {p}")
+    return 0
+
+
+def answer_question(
+    question: str,
+    *,
+    config: dict,
+    index_dir: Path,
+    force_vision: bool = False,
+    disable_vision: bool = False,
+) -> Tuple[str, List[str]]:
+    docs_root = Path(config.get("docs_root", Path("docs/service-documents").resolve()))
+    base_url = config.get("ollama_base_url", "http://localhost:11434")
+    embed_model = config.get("embedding_model", "nomic-embed-text")
+    chat_model = config.get("chat_model", "qwen3:8b")
+    vision_model = config.get("vision_model", "llava:7b")
+    vision_max_pages = int(config.get("vision_max_pages", 3))
+    top_k = int(config.get("top_k", 4))
+    max_context_chars = int(config.get("max_context_chars", 12000))
 
     index_path, meta, stored_cfg = load_index(index_dir)
     if stored_cfg:
@@ -273,14 +304,12 @@ def main() -> int:
         embed_model = stored_cfg.get("embedding_model", embed_model)
 
     session = requests.Session()
-    # Embed an expanded query to better match user slang ("seat assembly", "how many quarts", etc.)
     expanded = expand_question(question)
     v1 = embed(question, base_url, embed_model, session)
     v2 = embed(expanded, base_url, embed_model, session)
     q_vec = v1 + v2
     q_vec /= (np.linalg.norm(q_vec) + 1e-8)
 
-    # Determine dim from embedding
     dim = q_vec.shape[0]
     idx = hnswlib.Index(space="cosine", dim=dim)
     idx.load_index(str(index_path))
@@ -288,38 +317,42 @@ def main() -> int:
 
     search_k = max(top_k * 12, 48)
     labels, distances = idx.knn_query(q_vec, k=search_k)
-    hits = []
+    hits: List[Tuple[dict, float]] = []
     for lab, dist in zip(labels[0].tolist(), distances[0].tolist()):
         if 0 <= lab < len(meta):
             hits.append((meta[lab], float(dist)))
     hits = rerank_hits(question, hits)
+    hits = hits[: max(top_k * 4, top_k)]
 
-    context_blocks = []
+    context_blocks: List[str] = []
     used = 0
-    citations = []
-    for rec, dist in hits:
+    citations: List[str] = []
+    for rec, _dist in hits[:top_k]:
+        pn = rec.get("page_number")
+        loc = f"{rec['path']}" + (f":p{pn}" if pn else "")
         block = f"[{len(citations)+1}] {rec['path']}\n{rec['text']}\n"
         if used + len(block) > max_context_chars:
             break
         context_blocks.append(block)
         used += len(block)
-        citations.append(rec["path"])
+        citations.append(loc)
 
     context = "\n".join(context_blocks)
     prompt = (
-        "You are DWAI Assistant. Answer using the CONTEXT from service documents.\n"
-        "If the answer isn't in context, say so.\n"
+        "You are DWAI Assistant.\n"
+        "Write like a helpful text message: concise, direct, and practical.\n"
+        "Use the CONTEXT from service documents. If the answer isn't in context, say what to check next.\n"
+        "Ask at most ONE clarifying question if needed.\n"
         "Cite sources like [1], [2] matching the context blocks.\n\n"
         f"QUESTION:\n{question}\n\nCONTEXT:\n{context}\n\nANSWER:"
     )
 
     answer = generate(prompt, base_url, chat_model, session)
 
-    use_vision = args.vision or (not args.no_vision and should_use_vision(question, hits))
+    use_vision = force_vision or (not disable_vision and should_use_vision(question, hits[:top_k]))
     if use_vision and hits:
         primary_path = hits[0][0].get("path")
-        # Collect top unique pages from hits, if available.
-        pages = []
+        pages: List[int] = []
         seen = set()
         for rec, _dist in hits:
             if primary_path and rec.get("path") != primary_path:
@@ -332,7 +365,6 @@ def main() -> int:
                 break
 
         if pages:
-            # Use the top hit's PDF for page rendering.
             pdf_path = docs_root / hits[0][0]["path"]
             if pdf_path.exists():
                 images_b64 = render_pdf_pages(pdf_path, pages)
@@ -345,20 +377,13 @@ def main() -> int:
                         f"QUESTION:\n{question}\n"
                     )
                     try:
-                        vision_answer = generate_vision(
-                            vision_prompt, images_b64, base_url, vision_model, session
-                        )
+                        vision_answer = generate_vision(vision_prompt, images_b64, base_url, vision_model, session)
                         if vision_answer:
                             answer = vision_answer
                     except Exception:
                         pass
 
-    print(answer)
-    if citations:
-        print("\nSources:")
-        for i, p in enumerate(citations, start=1):
-            print(f"[{i}] {p}")
-    return 0
+    return answer, citations
 
 
 if __name__ == "__main__":

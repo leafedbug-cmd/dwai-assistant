@@ -108,6 +108,20 @@ For manuals where answers depend on exploded diagrams and callout numbers, you c
    python .\scripts\rag_ask.py --no-vision "Disable vision for this query"
    ```
 
+## Local Chat UI (Recommended)
+
+If you want a simple “texting style” chat in the browser (backed by the same local RAG index), run:
+
+1. Install web deps:
+   ```powershell
+   pip install -r .\requirements-web.txt
+   ```
+2. Start the web server:
+   ```powershell
+   python .\scripts\rag_web.py --config .\scripts\rag_config.json
+   ```
+3. Open `http://127.0.0.1:8090`
+
 ### Docker Container Setup
 
 See [docs/setup-open-webui.md](docs/setup-open-webui.md) for detailed instructions on running and configuring the Open WebUI container.
