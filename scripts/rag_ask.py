@@ -1,9 +1,10 @@
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import requests
@@ -53,13 +54,17 @@ def generate(prompt: str, base_url: str, model: str, session: requests.Session) 
     return resp.json().get("response", "").strip()
 
 
-def chat_vision(prompt: str, images_b64: List[str], base_url: str, model: str, session: requests.Session) -> str:
-    url = base_url.rstrip("/") + "/api/chat"
-    msg = {"role": "user", "content": prompt, "images": images_b64}
-    resp = session.post(url, json={"model": model, "messages": [msg], "stream": False}, timeout=600)
+def generate_vision(
+    prompt: str, images_b64: List[str], base_url: str, model: str, session: requests.Session
+) -> str:
+    url = base_url.rstrip("/") + "/api/generate"
+    resp = session.post(
+        url,
+        json={"model": model, "prompt": prompt, "images": images_b64, "stream": False},
+        timeout=600,
+    )
     resp.raise_for_status()
-    data = resp.json()
-    return (data.get("message", {}) or {}).get("content", "").strip()
+    return resp.json().get("response", "").strip()
 
 
 def render_pdf_pages(pdf_path: Path, page_numbers_1_based: List[int]) -> List[str]:
@@ -78,9 +83,117 @@ def render_pdf_pages(pdf_path: Path, page_numbers_1_based: List[int]) -> List[st
     return images
 
 
+def extract_model_tokens(question: str) -> Tuple[List[str], List[str]]:
+    """
+    Returns (model_variants, qualifiers) where:
+      - model_variants are normalized strings likely to appear in paths (e.g., "rt45", "rt-45", "rt 45")
+      - qualifiers include things like "tier 4", "stage v" if present in the question
+    """
+    q = question.lower()
+    qualifiers: List[str] = []
+    for qual in ("tier 4", "tier 4f", "tier 4i", "tier 3", "stage v", "stage vt", "stage v tier"):
+        if qual in q:
+            qualifiers.append(qual)
+
+    # Capture tokens like RT45, JT2020, SK1550, etc (allow optional hyphen/space).
+    raw = set()
+    for m in re.finditer(r"\b([a-z]{1,4})\s*[-]?\s*(\d{1,4}[a-z]?)\b", q, flags=re.IGNORECASE):
+        raw.add(f"{m.group(1)}{m.group(2)}".lower())
+
+    variants: List[str] = []
+    for token in sorted(raw):
+        # Basic variants that appear in folder names.
+        letters = re.match(r"^[a-z]+", token).group(0) if re.match(r"^[a-z]+", token) else token
+        digits = token[len(letters) :]
+        variants.extend([token, f"{letters}-{digits}", f"{letters} {digits}"])
+    # de-dupe preserving order
+    out: List[str] = []
+    seen = set()
+    for v in variants:
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out, qualifiers
+
+
+def classify_intent(question: str) -> str:
+    q = question.lower()
+    parts_words = ("part", "parts", "assembly", "assy", "pn", "part number", "item", "callout", "exploded", "diagram")
+    specs_words = ("quart", "quarts", "oil", "capacity", "spec", "specs", "torque", "interval", "maintenance", "fluid")
+    if any(w in q for w in parts_words) and not any(w in q for w in specs_words):
+        return "parts"
+    if any(w in q for w in specs_words) and not any(w in q for w in parts_words):
+        return "specs"
+    # ambiguous
+    return "general"
+
+
+def expand_question(question: str) -> str:
+    models, qualifiers = extract_model_tokens(question)
+    intent = classify_intent(question)
+    additions: List[str] = []
+    if models:
+        additions.append("model: " + " ".join(models[:3]))
+    if qualifiers:
+        additions.append(" ".join(qualifiers))
+    if intent == "parts":
+        additions.append("parts manual complete parts book parts list item number callout assembly part number")
+    elif intent == "specs":
+        additions.append("operator manual specifications capacity maintenance interval")
+    else:
+        additions.append("service manual operator manual parts manual")
+    return question.strip() + "\n\nQuery hints: " + " | ".join(additions)
+
+
+def path_boost(path: str, model_variants: List[str], qualifiers: List[str], intent: str) -> float:
+    p = path.lower()
+    boost = 0.0
+
+    if model_variants:
+        if any(v in p for v in model_variants):
+            boost += 3.0
+        elif any(v.replace("-", "").replace(" ", "") in p.replace("-", "").replace(" ", "") for v in model_variants):
+            boost += 2.0
+
+    if qualifiers and any(q in p for q in qualifiers):
+        boost += 1.5
+
+    if intent == "parts":
+        if "parts" in p or "complete parts book" in p:
+            boost += 1.5
+        if "suggested parts stocking" in p:
+            boost += 0.5
+        if "operator" in p:
+            boost -= 0.5
+    elif intent == "specs":
+        if "operator" in p or "maintenance" in p:
+            boost += 1.5
+        if "parts" in p:
+            boost -= 0.5
+
+    # Penalize commonly irrelevant telemetry docs for parts/spec questions.
+    if any(bad in p for bad in ("telematics", "clm", "gps")):
+        boost -= 1.5
+    return boost
+
+
+def rerank_hits(question: str, hits: List[Tuple[dict, float]]) -> List[Tuple[dict, float]]:
+    model_variants, qualifiers = extract_model_tokens(question)
+    intent = classify_intent(question)
+    scored = []
+    for rec, dist in hits:
+        b = path_boost(rec.get("path", ""), model_variants, qualifiers, intent)
+        scored.append((rec, dist, b))
+    # Lower distance is better; higher boost is better.
+    scored.sort(key=lambda x: (x[1] - 0.08 * x[2], x[1]))
+    return [(r, d) for r, d, _b in scored]
+
+
 def should_use_vision(question: str, hits: List[tuple]) -> bool:
     q = question.lower()
     keyword_triggers = [
+        "assembly",
+        "part number",
         "diagram",
         "exploded",
         "callout",
@@ -149,7 +262,7 @@ def main() -> int:
     base_url = cfg.get("ollama_base_url", "http://localhost:11434")
     embed_model = cfg.get("embedding_model", "nomic-embed-text")
     chat_model = cfg.get("chat_model", "qwen3:8b")
-    vision_model = cfg.get("vision_model", "qwen2.5-vl:7b")
+    vision_model = cfg.get("vision_model", "llava:7b")
     vision_max_pages = int(cfg.get("vision_max_pages", 3))
     top_k = int(cfg.get("top_k", 4))
     max_context_chars = int(cfg.get("max_context_chars", 12000))
@@ -160,7 +273,12 @@ def main() -> int:
         embed_model = stored_cfg.get("embedding_model", embed_model)
 
     session = requests.Session()
-    q_vec = embed(question, base_url, embed_model, session)
+    # Embed an expanded query to better match user slang ("seat assembly", "how many quarts", etc.)
+    expanded = expand_question(question)
+    v1 = embed(question, base_url, embed_model, session)
+    v2 = embed(expanded, base_url, embed_model, session)
+    q_vec = v1 + v2
+    q_vec /= (np.linalg.norm(q_vec) + 1e-8)
 
     # Determine dim from embedding
     dim = q_vec.shape[0]
@@ -168,11 +286,13 @@ def main() -> int:
     idx.load_index(str(index_path))
     idx.set_ef(50)
 
-    labels, distances = idx.knn_query(q_vec, k=top_k)
+    search_k = max(top_k * 12, 48)
+    labels, distances = idx.knn_query(q_vec, k=search_k)
     hits = []
     for lab, dist in zip(labels[0].tolist(), distances[0].tolist()):
         if 0 <= lab < len(meta):
             hits.append((meta[lab], float(dist)))
+    hits = rerank_hits(question, hits)
 
     context_blocks = []
     used = 0
@@ -197,10 +317,13 @@ def main() -> int:
 
     use_vision = args.vision or (not args.no_vision and should_use_vision(question, hits))
     if use_vision and hits:
+        primary_path = hits[0][0].get("path")
         # Collect top unique pages from hits, if available.
         pages = []
         seen = set()
         for rec, _dist in hits:
+            if primary_path and rec.get("path") != primary_path:
+                continue
             pn = rec.get("page_number")
             if pn and pn not in seen:
                 seen.add(pn)
@@ -209,22 +332,22 @@ def main() -> int:
                 break
 
         if pages:
-            pdf_paths = []
-            for rec, _dist in hits:
-                pdf_paths.append(docs_root / rec["path"])
-            # Use the first hit's PDF for page rendering.
-            pdf_path = pdf_paths[0]
+            # Use the top hit's PDF for page rendering.
+            pdf_path = docs_root / hits[0][0]["path"]
             if pdf_path.exists():
                 images_b64 = render_pdf_pages(pdf_path, pages)
                 if images_b64:
                     vision_prompt = (
-                        "You are DWAI Assistant. The images are pages from a parts manual.\n"
-                        "Use the diagrams, callout numbers, and parts lists to answer.\n"
-                        "If you can, map callout numbers to part numbers and names.\n\n"
+                        "You are DWAI Assistant. The images are pages from equipment manuals.\n"
+                        "If this is a parts diagram/exploded view, map callout numbers to part numbers/names.\n"
+                        "If this is a spec/maintenance page, extract the requested value precisely.\n"
+                        "If unsure, say what page/section is needed.\n\n"
                         f"QUESTION:\n{question}\n"
                     )
                     try:
-                        vision_answer = chat_vision(vision_prompt, images_b64, base_url, vision_model, session)
+                        vision_answer = generate_vision(
+                            vision_prompt, images_b64, base_url, vision_model, session
+                        )
                         if vision_answer:
                             answer = vision_answer
                     except Exception:
