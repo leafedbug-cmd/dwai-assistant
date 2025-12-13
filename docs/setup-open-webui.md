@@ -45,7 +45,7 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:
       - open-webui-data:/app/backend/data
-      - ./docs/service-documents:/data/dwai-docs:ro
+      - ./docs:/data/dwai-docs:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -59,6 +59,12 @@ Start/stop:
 ```powershell
 docker compose up -d
 docker compose down
+```
+
+If you cloned this repo, you can also use the helper:
+
+```powershell
+.\scripts\start_open_webui.ps1
 ```
 
 ### Verify connectivity to host Ollama and docs (optional but recommended)
@@ -93,7 +99,7 @@ docker run -d -p 3000:8080 `
   --add-host=host.docker.internal:host-gateway `
   -e OLLAMA_BASE_URL=http://host.docker.internal:11434 `
   -v C:/app/backend/data:/app/backend/data `
-  -v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
+  -v C:/path/to/dwai-assistant/docs:/data/dwai-docs:ro `
   --name open-webui `
   --restart always `
   ghcr.io/open-webui/open-webui:main
@@ -103,7 +109,7 @@ docker run -d -p 3000:8080 `
 - `--add-host=host.docker.internal:host-gateway` allows the container to reach the Windows host.
 - `-e OLLAMA_BASE_URL=http://host.docker.internal:11434` points to Ollama running on the host.
 - `-v C:/app/backend/data:/app/backend/data` persists Open WebUI data.
-- `-v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro` mounts docs read-only for indexing.
+- `-v C:/path/to/dwai-assistant/docs:/data/dwai-docs:ro` mounts docs read-only for indexing.
 
 ## Step 3: Access Open WebUI
 
@@ -129,6 +135,7 @@ Once running, access the web interface:
 3. **Name:** `DWAI Service Documents`
 4. **Source:** Select folder path input.
 5. **Path:** `/data/dwai-docs` (inside container; maps to `C:\Users\austin\dwai-assistant\docs\service-documents` on host).
+   - If you used the `docker-compose.yml` in this repo, it maps to your repo's `.\docs` folder.
 6. **Settings:**
    - Keep directory hierarchy intact.
    - Enable recursive indexing.
@@ -157,7 +164,7 @@ docker run -d -p 3000:8080 `
   --add-host=host.docker.internal:host-gateway `
   -e OLLAMA_BASE_URL=http://host.docker.internal:11434 `
   -v C:/app/backend/data:/app/backend/data `
-  -v C:/Users/austin/dwai-assistant/docs/service-documents:/data/dwai-docs:ro `
+  -v C:/path/to/dwai-assistant/docs:/data/dwai-docs:ro `
   --name open-webui `
   --restart always `
   ghcr.io/open-webui/open-webui:main
@@ -194,6 +201,12 @@ docker logs open-webui
 - See [docs/OPERATIONS.md](OPERATIONS.md) for operational procedures and API usage.
 - Sync additional documents: `.\scripts\sync_service_docs.ps1`
 - (Optional) Set up automated reindexing with `scripts/reindex_openwebui.ps1`
+
+## Feedback Loop (Local RAG)
+
+If you use the included `webui/` (Streamlit) UI, you can save feedback on whether an answer was correct.
+Feedback is written to `data/feedback/feedback.jsonl` and is used to speed up future parts lookups when the same
+model + short part description repeats.
 
 ## Additional Resources
 

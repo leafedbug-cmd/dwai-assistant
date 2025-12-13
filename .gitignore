@@ -73,3 +73,9 @@ logs/
 
 # Documents
 *.pdf
+
+# Local/runtime data (do not commit)
+data/
+tmp_non_english_dryrun*.txt
+scripts/non_english_report*.csv
+scripts/parts_manual_inventory.csv

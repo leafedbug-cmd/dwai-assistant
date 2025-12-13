@@ -11,27 +11,27 @@ This repository houses the complete DeWALT service documentation hierarchy and s
 ```
 dwai-assistant/
 ├── README.md                          # This file
+├── docker-compose.yml                 # Open WebUI (Docker) launcher
 ├── .gitignore                         # Git ignore patterns
 ├── .gitattributes                     # Git LFS configuration
 ├── LICENSE                            # Repository license
-├── docs/
-│   ├── service-documents/             # Mirror of C:\Users\austin\Downloads\Service Documents
-│   │   ├── AUGER BORING/
-│   │   ├── COMPACT UTILITY EQUIPMENT/
-│   │   ├── DIRECTIONAL DRILLS/
-│   │   ├── ELECTRONICS/
-│   │   ├── PARTS/
-│   │   ├── TRENCHERPLOWSSURFACE MINERS/
-│   │   ├── TRENCHLESS/
-│   │   ├── VACUUM EXCAVATOR/
-│   │   └── [additional categories...]
+├── docs/                              # Service documents (PDF hierarchy)
+│   ├── AUGER BORING/
+│   ├── COMPACT UTILITY EQUIPMENT/
+│   ├── DIRECTIONAL DRILLS/
+│   ├── ELECTRONICS/
+│   ├── PARTS/
+│   ├── TRENCHERPLOWSSURFACE MINERS/
+│   ├── TRENCHLESS/
+│   ├── VACUUM EXCAVATOR/
 │   ├── setup-open-webui.md            # Setup instructions for Open WebUI/Ollama integration
-│   ├── OPERATIONS.md                  # Operational procedures and API documentation
-│   ├── index.csv                      # (Auto-generated) File listing with paths and metadata
-│   └── mappings.md                    # (If needed) Document name mappings and normalization log
-└── scripts/
-    ├── sync_service_docs.ps1          # PowerShell script to sync docs from source
-    └── reindex_openwebui.ps1          # (Optional) Helper to reindex Open WebUI dataset
+│   └── OPERATIONS.md                  # Operational procedures and API documentation
+├── scripts/
+│   ├── rag_reindex.py                 # Build local RAG index (fast, no upload)
+│   ├── rag_ask.py                     # Query local RAG index
+│   ├── sync_service_docs.ps1          # PowerShell script to sync docs from source
+│   └── reindex_openwebui.ps1          # (Optional) Helper to reindex Open WebUI dataset
+└── webui/                             # Simple local Streamlit UI (optional)
 ```
 
 ## Quick Start
