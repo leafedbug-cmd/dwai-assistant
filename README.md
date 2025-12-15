@@ -2,6 +2,50 @@
 
 A document management and AI-assisted repository for DeWALT service documentation integrated with Ollama/Qwen and Open WebUI.
 
+## Local-Only Branch (no Docker/Tailscale)
+
+You are on the `local-only-no-docker` branch. This branch is meant for strictly local use and does not rely on Docker or Tailscale. Everything runs on your Windows machine:
+
+- Ollama serves models on `localhost:11434`
+- The included Streamlit UI serves on `localhost:8501`
+- RAG indexing and queries use local scripts in `scripts/`
+
+### Quick Local Setup
+
+1. Create and activate a virtual environment, then install deps:
+   ```powershell
+   py -3.13 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r .\requirements-webui.txt
+   pip install -r .\requirements-rag.txt
+   ```
+2. Start Ollama (and pull required models):
+   ```powershell
+   ollama serve
+   ollama pull qwen3:4b
+   ollama pull nomic-embed-text
+   ollama pull llava:7b   # optional for diagrams/vision
+   ```
+3. Copy/edit RAG config if needed:
+   ```powershell
+   Copy-Item .\scripts\rag_config.example.json .\scripts\rag_config.json
+   notepad .\scripts\rag_config.json
+   ```
+4. Build the local index (first run only):
+   ```powershell
+   python .\scripts\rag_reindex.py --config .\scripts\rag_config.json
+   ```
+5. Launch the local WebUI (Streamlit):
+   ```powershell
+   .\scripts\start_dwfixit_webui.ps1
+   # Opens on http://localhost:8501
+   ```
+6. Ask questions via script or WebUI:
+   ```powershell
+   python .\scripts\rag_ask.py "What are the HX75 maintenance intervals?"
+   # Or open http://localhost:8501 in your browser
+   ```
+
 ## Overview
 
 This repository houses the complete DeWALT service documentation hierarchy and serves as a knowledge source for the DWAI Assistant system. Documents are indexed by Open WebUI and made searchable through Qwen, a powerful language model running on Ollama.
@@ -39,9 +83,8 @@ dwai-assistant/
 ### Prerequisites
 
 - Git and Git LFS installed
-- Docker with Open WebUI container deployed
 - Ollama running with Qwen model
-- Tailscale (for remote access) or local network access
+- Local network access (optional; this branch targets localhost)
 
 ### Local Setup
 
@@ -110,13 +153,15 @@ For manuals where answers depend on exploded diagrams and callout numbers, you c
 
 ### Docker Container Setup
 
-See [docs/setup-open-webui.md](docs/setup-open-webui.md) for detailed instructions on running and configuring the Open WebUI container.
+Docker/Tailscale are not required on this branch. If you prefer Docker, see [docs/setup-open-webui.md](docs/setup-open-webui.md) (optional).
 
 ## Connection Endpoints
 
-- **Open WebUI:** `http://100.80.203.54:3000` (Tailscale) or `http://localhost:3000` (local)
-- **Ollama API:** `http://100.80.203.54:11434` (Tailscale) or `http://localhost:11434` (local)
-- **Ollama Host:** `0.0.0.0`
+- **dwFixIT WebUI (Streamlit):** http://localhost:8501
+- **Open WebUI (optional, Docker):** http://localhost:3000
+- **Ollama API:** http://localhost:11434
+
+Note: For LAN access from another PC, start Ollama bound to all interfaces by setting `OLLAMA_HOST=0.0.0.0` before `ollama serve`, then use `http://<your-host-ip>:11434`.
 
 ## Operations
 

@@ -2,12 +2,14 @@
 
 This document provides step-by-step instructions for running the Open WebUI container, configuring it with Ollama, and connecting the DWAI service documents.
 
+> Note (local-only branch): Docker and Tailscale are not required on this branch. Use this document only if you choose to run Open WebUI in Docker; otherwise, start the local Streamlit UI with `scripts/start_dwfixit_webui.ps1`.
+
 ## Prerequisites
 
 - **Docker** installed and running
 - **Ollama** running on the Windows host with Qwen model pulled
 - **Repository** cloned to `C:\Users\austin\dwai-assistant`
-- **Tailscale** (for remote access) or local network connectivity
+- **Tailscale** (optional for remote access; not used in local-only branch) or local network connectivity
 
 ## Step 1: Verify Ollama is Running
 

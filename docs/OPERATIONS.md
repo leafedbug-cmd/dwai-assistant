@@ -2,6 +2,8 @@
 
 This document provides operational procedures, API usage examples, and troubleshooting for the DWAI Assistant system.
 
+> Note (local-only branch): This branch is designed for strictly local use without Docker or Tailscale. Container sections remain for reference but are optional. For local operation, prefer running Ollama and the included Streamlit UI (`scripts/start_dwfixit_webui.ps1`).
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -21,7 +23,7 @@ DWAI Assistant integrates:
 - **Document Repository:** Git-based storage with LFS for large binaries
 - **Ollama:** Local LLM inference engine with Qwen model
 - **Open WebUI:** Browser-based interface for chat and document search
-- **Tailscale:** Secure remote access (optional)
+- **Tailscale:** Secure remote access (optional; not used in local-only branch)
 
 ## System Architecture
 
