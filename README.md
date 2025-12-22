@@ -1,16 +1,24 @@
 # DWAI Assistant
 
-A document management and AI-assisted repository for DeWALT service documentation integrated with Ollama/Qwen and Open WebUI.
+DWAI Assistant is a local document management and AI-assisted knowledge base for service documentation. It integrates Ollama (Qwen) with local RAG scripts and an optional Streamlit UI.
 
-## Local-Only Branch (no Docker/Tailscale)
+## Security Notes (Local-Only)
 
-You are on the `local-only-no-docker` branch. This branch is meant for strictly local use and does not rely on Docker or Tailscale. Everything runs on your Windows machine:
+- Default operation is local-only; no documents are uploaded to external services.
+- Local endpoints:
+  - Ollama API: http://localhost:11434
+  - Streamlit UI: http://localhost:8501
+  - Open WebUI (optional Docker): http://localhost:3000
+- Data at rest:
+  - `docs/` holds source PDFs in their original hierarchy.
+  - `data/` holds local indexes, caches, and reports and is gitignored.
+- Configuration:
+  - `scripts/rag_config.json` is local-only; copy from the example and do not commit secrets.
+- Network egress is only required when you intentionally pull models or install dependencies.
 
-- Ollama serves models on `localhost:11434`
-- The included Streamlit UI serves on `localhost:8501`
-- RAG indexing and queries use local scripts in `scripts/`
+## Local-Only Setup (no Docker/Tailscale)
 
-### Quick Local Setup
+If you are on the `local-only-no-docker` branch, everything runs on your Windows machine.
 
 1. Create and activate a virtual environment, then install deps:
    ```powershell
@@ -46,141 +54,34 @@ You are on the `local-only-no-docker` branch. This branch is meant for strictly 
    # Or open http://localhost:8501 in your browser
    ```
 
-## Overview
-
-This repository houses the complete DeWALT service documentation hierarchy and serves as a knowledge source for the DWAI Assistant system. Documents are indexed by Open WebUI and made searchable through Qwen, a powerful language model running on Ollama.
-
-## Repository Structure
+## Repository Layout
 
 ```
 dwai-assistant/
-├── README.md                          # This file
-├── docker-compose.yml                 # Open WebUI (Docker) launcher
-├── .gitignore                         # Git ignore patterns
-├── .gitattributes                     # Git LFS configuration
-├── LICENSE                            # Repository license
-├── docs/                              # Service documents (PDF hierarchy)
-│   ├── AUGER BORING/
-│   ├── COMPACT UTILITY EQUIPMENT/
-│   ├── DIRECTIONAL DRILLS/
-│   ├── ELECTRONICS/
-│   ├── PARTS/
-│   ├── TRENCHERPLOWSSURFACE MINERS/
-│   ├── TRENCHLESS/
-│   ├── VACUUM EXCAVATOR/
-│   ├── setup-open-webui.md            # Setup instructions for Open WebUI/Ollama integration
-│   └── OPERATIONS.md                  # Operational procedures and API documentation
-├── scripts/
-│   ├── rag_reindex.py                 # Build local RAG index (fast, no upload)
-│   ├── rag_ask.py                     # Query local RAG index
-│   ├── sync_service_docs.ps1          # PowerShell script to sync docs from source
-│   └── reindex_openwebui.ps1          # (Optional) Helper to reindex Open WebUI dataset
-└── webui/                             # Simple local Streamlit UI (optional)
+|-- README.md
+|-- LICENSE
+|-- docker-compose.yml
+|-- .gitignore
+|-- .gitattributes
+|-- docs/
+|   |-- ARCHITECTURE.md
+|   |-- SECURITY_REVIEW.md
+|   |-- OPERATIONS.md
+|   |-- setup-open-webui.md
+|   `-- <service PDF folders...>
+|-- scripts/
+|   |-- rag_reindex.py
+|   |-- rag_ask.py
+|   |-- remove_non_english.py
+|   |-- sync_service_docs.ps1
+|   `-- start_dwfixit_webui.ps1
+|-- webui/
+`-- data/                      # local-only indexes, caches, reports (gitignored)
 ```
-
-## Quick Start
-
-### Prerequisites
-
-- Git and Git LFS installed
-- Ollama running with Qwen model
-- Local network access (optional; this branch targets localhost)
-
-### Local Setup
-
-1. **Clone the repository:**
-   ```powershell
-   git clone https://github.com/leafedbug-cmd/dwai-assistant.git
-   cd dwai-assistant
-   ```
-
-2. **Sync service documents:**
-   ```powershell
-   .\scripts\sync_service_docs.ps1
-   ```
-
-3. **Stage and commit changes:**
-   ```powershell
-   git add .
-   git commit -m "Initial service documents import"
-   git push origin main
-   ```
-
-## Local RAG (No Upload Needed)
-
-Open WebUI in your current build only supports small “upload” knowledge bases. For your 30GB+ PDF library, use the local RAG scripts in `scripts/`.
-
-1. Install Python 3.10+ and dependencies:
-   ```powershell
-   pip install -r .\requirements-rag.txt
-   ```
-   Make sure your embedding model is available in Ollama:
-   ```powershell
-   ollama pull nomic-embed-text
-   ```
-2. (Optional) copy and edit config:
-   ```powershell
-   Copy-Item .\scripts\rag_config.example.json .\scripts\rag_config.json
-   notepad .\scripts\rag_config.json
-   ```
-3. Build the index (first time takes a while):
-   ```powershell
-   python .\scripts\rag_reindex.py --config .\scripts\rag_config.json
-   ```
-4. Ask questions:
-   ```powershell
-   python .\scripts\rag_ask.py "What are the HX75 maintenance intervals?"
-   ```
-
-### Diagram / Vision Mode (optional)
-
-For manuals where answers depend on exploded diagrams and callout numbers, you can run a local vision model on the top retrieved pages:
-
-1. Pull a vision model that Ollama supports (example):
-   ```powershell
-   ollama pull llava:7b
-   ```
-2. Rebuild the index if you haven’t since updating scripts (stores page numbers):
-   ```powershell
-   python .\scripts\rag_reindex.py --config .\scripts\rag_config.json
-   ```
-3. Vision auto-triggers for diagram/callout questions. You can still force or disable it:
-   ```powershell
-   python .\scripts\rag_ask.py "What is callout 12 on the JT20 exploded view?"
-   python .\scripts\rag_ask.py --vision "Force vision even if not needed"
-   python .\scripts\rag_ask.py --no-vision "Disable vision for this query"
-   ```
-
-### Docker Container Setup
-
-Docker/Tailscale are not required on this branch. If you prefer Docker, see [docs/setup-open-webui.md](docs/setup-open-webui.md) (optional).
-
-## Connection Endpoints
-
-- **dwFixIT WebUI (Streamlit):** http://localhost:8501
-- **Open WebUI (optional, Docker):** http://localhost:3000
-- **Ollama API:** http://localhost:11434
-
-Note: For LAN access from another PC, start Ollama bound to all interfaces by setting `OLLAMA_HOST=0.0.0.0` before `ollama serve`, then use `http://<your-host-ip>:11434`.
 
 ## Operations
 
-For detailed operational procedures, API usage, and troubleshooting, see [docs/OPERATIONS.md](docs/OPERATIONS.md).
-
-## Document Organization
-
-All service documents are preserved in their original folder hierarchy. Categories include:
-
-- AUGER BORING
-- COMPACT UTILITY EQUIPMENT
-- DIRECTIONAL DRILLS
-- ELECTRONICS
-- PARTS
-- TRENCHERPLOWSSURFACE MINERS
-- TRENCHLESS
-- VACUUM EXCAVATOR
-
-**Important:** Do not rename or flatten directories. The hierarchy is maintained for context-rich retrieval by the AI model.
+For operational procedures, API usage, and troubleshooting, see `docs/OPERATIONS.md`.
 
 ## Git LFS
 
@@ -196,8 +97,12 @@ Run `git lfs status` to verify LFS tracking.
 
 ## License
 
-[Choose appropriate license - default: MIT]
+MIT License. See `LICENSE`.
 
-## Contacts & Support
+## Review Checklist
 
-For questions or issues, please open a GitHub issue or contact the repository maintainer.
+- Confirm all services bind to localhost unless explicitly configured otherwise.
+- Verify no secrets or tokens are committed (configs are example-only).
+- Validate data at rest location (`docs/` for PDFs, `data/` for local indexes).
+- Review outbound network requirements (model pulls and dependency installs only).
+- Capture a short dependency inventory for reviewers if requested (pip freeze).
